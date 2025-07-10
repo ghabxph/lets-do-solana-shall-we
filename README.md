@@ -18,7 +18,7 @@ We skip the history lessons and focus on setting up a repeatable local environme
 
 ---
 
-## 🧪 [Module 2: First Real Program (Learning by Building)](module-2)
+## 🧪 [Module 3: First Real Program (Learning by Building)](module-3)
 
 **Goal:** Build a real smart contract that touches the core building blocks of Solana.
 
@@ -37,7 +37,7 @@ This will teach:
 
 ---
 
-## 🌐 Module 3: The No-BS Web3 — Client Calls That Actually Work
+## 🌐 Module 4: The No-BS Web3 — Client Calls That Actually Work
 
 We write the frontend and scripts **right after** the program is done.
 
@@ -53,7 +53,7 @@ We call our own program using raw transactions.
 
 ---
 
-## 🧪 Module 4: Simulating Mainnet With Banks Client
+## 🧪 Module 5: Simulating Mainnet With Banks Client
 
 We want real-world realism **without** spending SOL.
 
@@ -68,7 +68,7 @@ This approach builds real muscle memory for production-grade testing.
 
 ---
 
-## 🔍 Module 5: How Anchor Really Works (Not Magic)
+## 🔍 Module 6: How Anchor Really Works (Not Magic)
 
 We pause to understand what's happening under the hood.
 
@@ -83,7 +83,7 @@ This module is where Anchor goes from being a black box to being transparent and
 
 ---
 
-## 🛠️ Module 6: Rewriting It Without Anchor
+## 🛠️ Module 7: Rewriting It Without Anchor
 
 Now that learners understand what Anchor does, we strip it away.
 
@@ -99,7 +99,7 @@ This is where we strengthen the foundation. Anchor becomes optional, not essenti
 
 ---
 
-## 🧱 Module 7: Back to Anchor (Now With Context)
+## 🧱 Module 8: Back to Anchor (Now With Context)
 
 Now that learners appreciate the abstraction, we go back and:
 
@@ -110,7 +110,7 @@ This helps learners understand when to use Anchor — and when not to.
 
 ---
 
-## 🧠 Module 8: Higher-Level Concepts & Solana Vision
+## 🧠 Module 9: Higher-Level Concepts & Solana Vision
 
 With hands-on skills built, we now explore:
 

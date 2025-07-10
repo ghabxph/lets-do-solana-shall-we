@@ -1,4 +1,4 @@
-# 🧪 Module 2: First Real Program (Learning by Building)
+# 🧪 Module 3: First Real Program (Learning by Building)
 
 **Goal:** Ship a smart contract exploring real-world patterns:
 
