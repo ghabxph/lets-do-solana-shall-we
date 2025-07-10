@@ -18,6 +18,26 @@ We skip the history lessons and focus on setting up a repeatable local environme
 
 ---
 
+## [🧪 Module 2: Anchor Project Setup (The Foundation)](module-2)
+
+**Goal:** Create an Anchor project boilerplate for an escrow program - the "Hello World" of Solana development.
+
+### ✨ What We'll Build
+
+- ✅ Anchor project structure and configuration
+- ✅ Basic program skeleton with proper imports
+- ✅ Test setup and configuration
+- ✅ Build and deploy workflow
+
+This escrow program will teach all the core Solana concepts in Module 3:
+
+- Account signing from client
+- PDA authority and signed invocation (`invoke_signed`)
+- Account mutability
+- On-chain logs and debugging
+
+---
+
 ## 🧪 [Module 3: First Real Program (Learning by Building)](module-3)
 
 **Goal:** Build a real smart contract that touches the core building blocks of Solana.
