@@ -18,7 +18,7 @@ We skip the history lessons and focus on setting up a repeatable local environme
 
 ---
 
-## 🧪 Module 2: First Real Program (Learning by Building)
+## 🧪 [Module 2: First Real Program (Learning by Building)](module-2)
 
 **Goal:** Build a real smart contract that touches the core building blocks of Solana.
 
