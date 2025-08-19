@@ -1,377 +1,257 @@
-# 🚀 Module 10: Extra - Advanced Solana Development Patterns
+# 🔐 Module 10: Solana Program Security (Sealevel Gotchas)
 
-**Goal:** Explore advanced Solana development patterns, best practices, and real-world implementation strategies that go beyond the basics.
+**Goal:** Understand Solana's unique security considerations and common pitfalls that arise from its parallel execution model and account-based architecture.
 
 ---
 
 ## 🎯 What You'll Learn
 
-- ✅ Advanced PDA patterns and optimization techniques  
-- ✅ State compression and Merkle trees for scalable NFTs
-- ✅ Cross-program invocation (CPI) best practices
-- ✅ Account versioning and migration strategies
-- ✅ Advanced testing patterns and security considerations
-- ✅ Performance optimization and compute unit management
-- ✅ Integration with off-chain services and oracles
-- ✅ Deployment strategies and program upgrades
+- ✅ Solana's parallel execution model and its security implications
+- ✅ Account constraints and limitations that affect program design
+- ✅ Cross-program invocation (CPI) safety considerations
+- ✅ Reentrancy patterns - why they're different on Solana
+- ✅ Anchor account constraints vs manual validation trade-offs
+- ✅ Common attack vectors and how to prevent them
+- ✅ Best practices for secure Solana program development
 
 ---
 
-## 🏗️ Advanced PDA Patterns
+## 🏃‍♂️ Solana's Parallel Execution Model
 
-### 1. Hierarchical PDAs
+Unlike Ethereum's sequential execution, Solana runs transactions in parallel using the **Sealevel** runtime.
+
+### How Sealevel Works
 
 ```rust
-// Parent-child relationship with PDAs
-let (parent_pda, _) = Pubkey::find_program_address(
-    &[b"parent", user.key().as_ref()],
-    program_id,
-);
+// Solana analyzes account dependencies BEFORE execution
+Transaction A: Modifies accounts [X, Y]
+Transaction B: Modifies accounts [Z, W]  
+Transaction C: Modifies accounts [Y, Z]
 
-let (child_pda, _) = Pubkey::find_program_address(
-    &[b"child", parent_pda.as_ref(), &index.to_le_bytes()],
-    program_id,
-);
+// Execution order:
+// A and B can run in parallel (no shared accounts)
+// C must wait for both A and B (shares Y with A, Z with B)
 ```
 
-### 2. Dynamic PDA Generation
+### Security Implications
+
+**1. Account Locking**
+- Solana locks accounts during transaction execution
+- No two transactions can modify the same account simultaneously
+- This prevents many traditional race conditions
+
+**2. Transaction Ordering**
+- Parallel execution means transaction order isn't guaranteed
+- Don't rely on transaction sequence for security logic
+
+---
+
+## 🔒 Account Constraints and Limitations
+
+### Account Size Limitations
 
 ```rust
-// Using counters for unique PDAs
+// Maximum account size is 10MB
+const MAX_ACCOUNT_SIZE: usize = 10 * 1024 * 1024;
+
 #[account]
-pub struct GlobalState {
-    pub counter: u64,
+pub struct LargeAccount {
+    pub data: Vec<u8>, // Can grow up to ~10MB
 }
 
-let (item_pda, _) = Pubkey::find_program_address(
-    &[
-        b"item", 
-        user.key().as_ref(),
-        &global_state.counter.to_le_bytes()
-    ],
-    program_id,
-);
+// Dangerous: Unbounded growth
+pub fn add_data(ctx: Context<AddData>, new_data: Vec<u8>) -> Result<()> {
+    let account = &mut ctx.accounts.large_account;
+    account.data.extend(new_data); // Could exceed 10MB limit
+    Ok(())
+}
+
+// Safe: Check size limits
+pub fn add_data_safe(ctx: Context<AddData>, new_data: Vec<u8>) -> Result<()> {
+    let account = &mut ctx.accounts.large_account;
+    
+    require!(
+        account.data.len() + new_data.len() <= MAX_ACCOUNT_SIZE - 1000, // Leave buffer
+        ErrorCode::AccountTooLarge
+    );
+    
+    account.data.extend(new_data);
+    Ok(())
+}
 ```
 
-### 3. PDA Optimization Techniques
+### Rent Considerations
 
 ```rust
-// Store bump seeds to avoid recalculation
-#[account]
-pub struct OptimizedAccount {
-    pub bump: u8,
-    pub authority: Pubkey,
-    pub data: Vec<u8>,
+#[derive(Accounts)]
+pub struct CreateAccount<'info> {
+    #[account(
+        init,
+        payer = user,
+        space = 8 + 32 + 8, // Discriminator + pubkey + u64
+        // Dangerous: Not rent exempt
+    )]
+    pub new_account: Account<'info, MyAccount>,
+    
+    #[account(mut)]
+    pub user: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
-// Use stored bump in subsequent operations
-let signer_seeds = &[
-    b"authority",
-    self.authority.as_ref(),
-    &[self.bump]
-];
+// Better: Ensure rent exemption
+#[account(
+    init,
+    payer = user,
+    space = 8 + 32 + 8,
+    rent_exempt = enforce, // Ensures account is rent exempt
+)]
+pub new_account: Account<'info, MyAccount>,
 ```
 
 ---
 
-## 🌳 State Compression with Merkle Trees
+## 🔄 Cross-Program Invocation (CPI) Safety
 
-### 1. Compressed NFT Implementation
-
-```rust
-use mpl_bubblegum::{
-    instructions::{CreateTreeConfigBuilder, MintToCollectionV1Builder},
-    types::MetadataArgs,
-};
-
-// Create a compressed NFT collection
-pub fn create_compressed_nft_tree(
-    ctx: Context<CreateTree>,
-    max_depth: u32,
-    max_buffer_size: u32,
-) -> Result<()> {
-    let tree_config = ctx.accounts.tree_config.to_account_info();
-    let merkle_tree = ctx.accounts.merkle_tree.to_account_info();
-
-    CreateTreeConfigBuilder::new()
-        .tree_config(&tree_config)
-        .merkle_tree(&merkle_tree)
-        .payer(&ctx.accounts.payer)
-        .tree_creator(&ctx.accounts.tree_creator)
-        .log_wrapper(&ctx.accounts.log_wrapper)
-        .compression_program(&ctx.accounts.compression_program)
-        .system_program(&ctx.accounts.system_program)
-        .max_depth(max_depth)
-        .max_buffer_size(max_buffer_size)
-        .invoke()?;
-
-    Ok(())
-}
-```
-
-### 2. Batch Operations with Merkle Proofs
+### CPI Privilege Escalation
 
 ```rust
-pub fn batch_mint_compressed(
-    ctx: Context<BatchMint>,
-    metadata_list: Vec<MetadataArgs>,
-) -> Result<()> {
-    for (index, metadata) in metadata_list.iter().enumerate() {
-        // Generate leaf hash
-        let leaf_hash = hash_metadata(metadata)?;
-        
-        // Update Merkle tree
-        ctx.accounts.merkle_tree.append_leaf(leaf_hash)?;
-        
-        msg!("Minted compressed NFT #{}", index);
-    }
-    Ok(())
-}
-```
-
----
-
-## 🔄 Advanced CPI Patterns
-
-### 1. Dynamic CPI with Multiple Programs
-
-```rust
-pub fn complex_multi_program_operation(
-    ctx: Context<ComplexOperation>,
-    operation_type: u8,
-) -> Result<()> {
-    match operation_type {
-        1 => {
-            // CPI to DEX program
-            let cpi_ctx = CpiContext::new(
-                ctx.accounts.dex_program.to_account_info(),
-                DexSwap {
-                    user: ctx.accounts.user.to_account_info(),
-                    token_account_a: ctx.accounts.token_a.to_account_info(),
-                    token_account_b: ctx.accounts.token_b.to_account_info(),
-                }
-            );
-            dex_program::cpi::swap(cpi_ctx, amount)?;
-        },
-        2 => {
-            // CPI to lending program
-            let cpi_ctx = CpiContext::new(
-                ctx.accounts.lending_program.to_account_info(),
-                LendingDeposit {
-                    user: ctx.accounts.user.to_account_info(),
-                    reserve: ctx.accounts.reserve.to_account_info(),
-                }
-            );
-            lending_program::cpi::deposit(cpi_ctx, amount)?;
-        },
-        _ => return Err(ErrorCode::InvalidOperation.into()),
-    }
-    Ok(())
-}
-```
-
-### 2. CPI with Return Data
-
-```rust
-pub fn get_price_and_swap(ctx: Context<PriceAndSwap>) -> Result<()> {
-    // CPI to oracle for price
+// Dangerous: Unvalidated CPI
+pub fn dangerous_cpi(ctx: Context<DangerousCPI>) -> Result<()> {
+    // Attacker could pass malicious program_id
     let cpi_ctx = CpiContext::new(
-        ctx.accounts.oracle_program.to_account_info(),
-        GetPrice {
-            price_feed: ctx.accounts.price_feed.to_account_info(),
+        ctx.accounts.target_program.to_account_info(),
+        TransferTokens {
+            from: ctx.accounts.from.to_account_info(),
+            to: ctx.accounts.to.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info(),
         }
     );
-    oracle_program::cpi::get_price(cpi_ctx)?;
     
-    // Read return data
-    let return_data = solana_program::program::get_return_data()
-        .ok_or(ErrorCode::NoReturnData)?;
-    
-    let price: u64 = u64::from_le_bytes(
-        return_data.1[..8].try_into()
-            .map_err(|_| ErrorCode::InvalidReturnData)?
-    );
-    
-    // Use price for swap calculation
-    let swap_amount = calculate_swap_amount(price)?;
-    
-    // Execute swap
-    execute_swap(ctx, swap_amount)?;
-    
+    // This could call ANY program, not just token program!
+    token_program::cpi::transfer(cpi_ctx, amount)?;
     Ok(())
 }
-```
 
----
-
-## 🔄 Account Versioning and Migration
-
-### 1. Versioned Account Structure
-
-```rust
-#[account]
-pub struct VersionedAccount {
-    pub version: u8,
-    pub data: VersionedData,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize)]
-pub enum VersionedData {
-    V1(AccountDataV1),
-    V2(AccountDataV2),
-    V3(AccountDataV3),
-}
-
-impl VersionedAccount {
-    pub fn migrate_to_v2(&mut self) -> Result<()> {
-        match &self.data {
-            VersionedData::V1(v1_data) => {
-                self.data = VersionedData::V2(AccountDataV2 {
-                    // Migrate fields from V1 to V2
-                    old_field: v1_data.old_field,
-                    new_field: Default::default(),
-                });
-                self.version = 2;
-            },
-            _ => return Err(ErrorCode::InvalidVersion.into()),
-        }
-        Ok(())
-    }
+// Safe: Validate program ID
+#[derive(Accounts)]
+pub struct SafeCPI<'info> {
+    #[account(
+        address = spl_token::ID @ ErrorCode::InvalidTokenProgram
+    )]
+    pub token_program: Program<'info, Token>,
+    // ... other accounts
 }
 ```
 
-### 2. Backward Compatibility
+### CPI Signer Seeds Exposure
 
 ```rust
-pub fn handle_versioned_operation(
-    ctx: Context<VersionedOperation>,
-    operation_data: Vec<u8>,
-) -> Result<()> {
-    let account = &mut ctx.accounts.versioned_account;
-    
-    match account.version {
-        1 => handle_v1_operation(account, operation_data)?,
-        2 => handle_v2_operation(account, operation_data)?,
-        3 => handle_v3_operation(account, operation_data)?,
-        _ => {
-            // Auto-migrate to latest version
-            account.migrate_to_latest()?;
-            handle_v3_operation(account, operation_data)?;
-        }
-    }
-    
-    Ok(())
-}
-```
-
----
-
-## 🧪 Advanced Testing Patterns
-
-### 1. Integration Testing with Multiple Programs
-
-```rust
-#[tokio::test]
-async fn test_complex_defi_flow() {
-    let mut program_test = ProgramTest::new(
-        "my_defi_program",
-        my_defi_program::id(),
-        processor!(my_defi_program::entry),
-    );
-    
-    // Add external programs
-    program_test.add_program(
-        "spl_token",
-        spl_token::id(),
-        None,
-    );
-    program_test.add_program(
-        "serum_dex",
-        serum_dex::id(),
-        None,
-    );
-    
-    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
-    
-    // Create complex test scenario
-    let user_keypair = Keypair::new();
-    let token_mint = create_mint(&mut banks_client, &payer, &user_keypair.pubkey()).await;
-    
-    // Test full DeFi flow
-    let result = execute_defi_strategy(
-        &mut banks_client,
-        &payer,
-        &user_keypair,
-        &token_mint,
-        recent_blockhash,
-    ).await;
-    
-    assert!(result.is_ok());
-}
-```
-
-### 2. Property-Based Testing
-
-```rust
-use proptest::prelude::*;
-
-proptest! {
-    #[test]
-    fn test_price_calculation_properties(
-        base_amount in 1u64..1_000_000,
-        price_multiplier in 1u64..1000,
-        fee_bps in 0u64..1000,
-    ) {
-        let result = calculate_swap_output(base_amount, price_multiplier, fee_bps);
-        
-        // Property: output should always be less than input due to fees
-        prop_assert!(result.unwrap() < base_amount);
-        
-        // Property: higher fees should result in lower output
-        let result_higher_fee = calculate_swap_output(base_amount, price_multiplier, fee_bps + 100);
-        prop_assert!(result_higher_fee.unwrap() < result.unwrap());
-    }
-}
-```
-
----
-
-## ⚡ Compute Unit Optimization
-
-### 1. Compute Budget Management
-
-```rust
-use solana_program::compute_budget::{self, ComputeBudgetInstruction};
-
-pub fn create_optimized_transaction() -> Transaction {
-    let mut instructions = vec![
-        // Set compute unit limit
-        ComputeBudgetInstruction::set_compute_unit_limit(200_000),
-        
-        // Set compute unit price for priority
-        ComputeBudgetInstruction::set_compute_unit_price(1000),
+// Dangerous: Exposing seeds in CPI
+pub fn dangerous_seeds_cpi(ctx: Context<SeedsCPI>) -> Result<()> {
+    let seeds = &[
+        b"authority",
+        ctx.accounts.user.key().as_ref(),
+        &[bump], // bump is exposed
     ];
     
-    // Add your program instructions
-    instructions.push(your_program_instruction());
+    // If this CPI fails and reverts, the bump seed is still exposed
+    // in transaction logs, potentially allowing replay attacks
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.external_program.to_account_info(),
+        ExternalCall { /* accounts */ },
+        &[seeds]
+    );
     
-    Transaction::new_with_payer(&instructions, Some(&payer.pubkey()))
+    external_program::cpi::some_function(cpi_ctx)?;
+    Ok(())
+}
+
+// Better: Use derived signers carefully
+pub fn safe_seeds_cpi(ctx: Context<SeedsCPI>) -> Result<()> {
+    // Validate the operation BEFORE exposing seeds
+    require!(
+        ctx.accounts.user.key() == expected_authority,
+        ErrorCode::UnauthorizedAuthority
+    );
+    
+    let seeds = &[
+        b"authority",
+        ctx.accounts.user.key().as_ref(),
+        &[bump],
+    ];
+    
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.external_program.to_account_info(),
+        ExternalCall { /* accounts */ },
+        &[seeds]
+    );
+    
+    external_program::cpi::some_function(cpi_ctx)?;
+    Ok(())
 }
 ```
 
-### 2. Efficient Account Loading
+---
+
+## 🔄 Reentrancy - Different on Solana
+
+### Why Traditional Reentrancy is Harder
 
 ```rust
-// Use references instead of cloning large data
-pub fn process_large_account_efficiently(
-    ctx: Context<ProcessLargeAccount>,
-) -> Result<()> {
-    let account_data = &ctx.accounts.large_account.data;
+// Traditional Ethereum reentrancy (NOT possible on Solana)
+pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+    let user_balance = ctx.accounts.user_account.balance;
     
-    // Process data in chunks to avoid compute limits
-    for chunk in account_data.chunks(1000) {
-        process_chunk(chunk)?;
-    }
+    // On Ethereum, this external call could re-enter
+    // On Solana, accounts are locked during transaction
+    external_program::cpi::transfer(/* ... */)?;
+    
+    // This update happens in the same transaction
+    ctx.accounts.user_account.balance = user_balance - amount;
+    Ok(())
+}
+```
+
+### Solana's Account-Based Reentrancy
+
+```rust
+// Potential issue: Cross-account state inconsistency
+#[derive(Accounts)]
+pub struct CrossAccountUpdate<'info> {
+    #[account(mut)]
+    pub account_a: Account<'info, StateA>,
+    #[account(mut)]
+    pub account_b: Account<'info, StateB>,
+}
+
+pub fn update_linked_accounts(
+    ctx: Context<CrossAccountUpdate>,
+    value: u64,
+) -> Result<()> {
+    // Update account A
+    ctx.accounts.account_a.value = value;
+    
+    // CPI that might fail
+    external_program::cpi::risky_operation(/* ... */)?;
+    
+    // If CPI fails, account A is updated but account B is not
+    // This can leave accounts in inconsistent state
+    ctx.accounts.account_b.linked_value = value;
+    
+    Ok(())
+}
+
+// Better: Update all state atomically at the end
+pub fn atomic_update_linked_accounts(
+    ctx: Context<CrossAccountUpdate>,
+    value: u64,
+) -> Result<()> {
+    // Perform all risky operations first
+    external_program::cpi::risky_operation(/* ... */)?;
+    
+    // Update all accounts atomically at the end
+    ctx.accounts.account_a.value = value;
+    ctx.accounts.account_b.linked_value = value;
     
     Ok(())
 }
@@ -379,283 +259,331 @@ pub fn process_large_account_efficiently(
 
 ---
 
-## 🌐 Oracle Integration Patterns
+## ⚖️ Anchor Constraints vs Manual Validation
 
-### 1. Price Feed Integration
+### Over-Reliance on Anchor Constraints
 
 ```rust
-use chainlink_solana;
-
+// Potentially dangerous: Complex constraint logic
 #[derive(Accounts)]
-pub struct GetOraclePrice<'info> {
+#[instruction(amount: u64)]
+pub struct ComplexTransfer<'info> {
     #[account(
-        address = chainlink_solana::price_feeds::SOL_USD @ ErrorCode::InvalidPriceFeed
+        mut,
+        has_one = owner,
+        constraint = account.balance >= amount @ ErrorCode::InsufficientFunds,
+        constraint = account.active @ ErrorCode::AccountInactive,
+        constraint = Clock::get()?.unix_timestamp < account.expires_at @ ErrorCode::AccountExpired,
     )]
-    pub price_feed: AccountInfo<'info>,
+    pub account: Account<'info, UserAccount>,
+    
+    pub owner: Signer<'info>,
 }
 
-pub fn use_oracle_price(ctx: Context<GetOraclePrice>) -> Result<()> {
-    let price_feed = &ctx.accounts.price_feed;
-    let price_data = chainlink_solana::get_price(price_feed)?;
-    
-    require!(
-        price_data.timestamp > Clock::get()?.unix_timestamp - 300, // 5 minutes
-        ErrorCode::StalePrice
-    );
-    
-    let current_price = price_data.price;
-    msg!("Current SOL/USD price: {}", current_price);
-    
-    // Use price for calculations
-    process_with_price(current_price)?;
-    
-    Ok(())
-}
-```
-
-### 2. Custom Oracle Implementation
-
-```rust
-#[account]
-pub struct PriceOracle {
-    pub authority: Pubkey,
-    pub price: u64,
-    pub last_updated: i64,
-    pub confidence: u64,
-}
-
-pub fn update_oracle_price(
-    ctx: Context<UpdateOracle>,
-    new_price: u64,
-    confidence: u64,
-) -> Result<()> {
-    let oracle = &mut ctx.accounts.oracle;
-    
-    require!(
-        ctx.accounts.authority.key() == oracle.authority,
-        ErrorCode::UnauthorizedOracle
-    );
-    
-    oracle.price = new_price;
-    oracle.confidence = confidence;
-    oracle.last_updated = Clock::get()?.unix_timestamp;
-    
-    emit!(PriceUpdated {
-        price: new_price,
-        confidence,
-        timestamp: oracle.last_updated,
-    });
-    
-    Ok(())
-}
-```
-
----
-
-## 🚀 Deployment and Upgrade Strategies
-
-### 1. Safe Program Upgrades
-
-```bash
-# 1. Deploy to testnet first
-solana program deploy --url testnet target/deploy/program.so
-
-# 2. Test thoroughly on testnet
-anchor test --provider.cluster testnet
-
-# 3. Deploy to mainnet with buffer account
-solana program write-buffer --url mainnet-beta target/deploy/program.so
-
-# 4. Set buffer authority
-solana program set-buffer-authority <buffer-address> --new-buffer-authority <upgrade-authority>
-
-# 5. Deploy from buffer (allows for atomic upgrade)
-solana program deploy --url mainnet-beta --buffer <buffer-address> --program-id <program-id>
-```
-
-### 2. Feature Flags for Gradual Rollout
-
-```rust
-#[account]
-pub struct FeatureFlags {
-    pub new_feature_enabled: bool,
-    pub advanced_mode_enabled: bool,
-    pub emergency_mode: bool,
-}
-
-pub fn process_with_feature_gates(
-    ctx: Context<ProcessWithFeatures>,
-    operation: Operation,
-) -> Result<()> {
-    let flags = &ctx.accounts.feature_flags;
-    
-    if flags.emergency_mode {
-        return Err(ErrorCode::EmergencyMode.into());
-    }
-    
-    match operation {
-        Operation::NewFeature => {
-            require!(
-                flags.new_feature_enabled,
-                ErrorCode::FeatureDisabled
-            );
-            execute_new_feature(ctx)?;
-        },
-        Operation::Standard => {
-            execute_standard_operation(ctx)?;
-        },
-    }
-    
-    Ok(())
-}
-```
-
----
-
-## 🔐 Advanced Security Patterns
-
-### 1. Reentrancy Protection
-
-```rust
-#[account]
-pub struct ReentrancyGuard {
-    pub locked: bool,
-}
-
-pub fn protected_function(
-    ctx: Context<ProtectedFunction>,
-) -> Result<()> {
-    let guard = &mut ctx.accounts.reentrancy_guard;
-    
-    require!(!guard.locked, ErrorCode::ReentrancyDetected);
-    
-    guard.locked = true;
-    
-    // Execute protected logic
-    let result = execute_critical_operation(ctx);
-    
-    guard.locked = false;
-    
-    result
-}
-```
-
-### 2. Access Control with Roles
-
-```rust
-#[account]
-pub struct RoleBasedAccess {
-    pub admin: Pubkey,
-    pub operators: Vec<Pubkey>,
-    pub users: Vec<Pubkey>,
-}
-
-pub fn role_protected_function(
-    ctx: Context<RoleProtectedFunction>,
-    required_role: Role,
-) -> Result<()> {
-    let access_control = &ctx.accounts.access_control;
-    let signer = ctx.accounts.signer.key();
-    
-    let has_permission = match required_role {
-        Role::Admin => access_control.admin == signer,
-        Role::Operator => access_control.operators.contains(&signer),
-        Role::User => access_control.users.contains(&signer),
-    };
-    
-    require!(has_permission, ErrorCode::InsufficientPermissions);
-    
-    // Execute role-specific logic
-    execute_role_based_operation(ctx, required_role)?;
-    
-    Ok(())
-}
-```
-
----
-
-## 📊 Monitoring and Analytics
-
-### 1. Custom Events and Metrics
-
-```rust
-#[event]
-pub struct DetailedTransactionEvent {
-    pub user: Pubkey,
-    pub transaction_type: String,
-    pub amount: u64,
-    pub timestamp: i64,
-    pub gas_used: u64,
-    pub success: bool,
-}
-
-pub fn emit_detailed_metrics(
-    ctx: Context<EmitMetrics>,
-    transaction_type: String,
-    amount: u64,
-    gas_used: u64,
-) -> Result<()> {
-    emit!(DetailedTransactionEvent {
-        user: ctx.accounts.user.key(),
-        transaction_type,
-        amount,
-        timestamp: Clock::get()?.unix_timestamp,
-        gas_used,
-        success: true,
-    });
-    
-    Ok(())
-}
-```
-
-### 2. Health Check Endpoints
-
-```rust
+// Better: Mix constraints with explicit validation
 #[derive(Accounts)]
-pub struct HealthCheck<'info> {
-    pub system_state: Account<'info, SystemState>,
+pub struct ExplicitTransfer<'info> {
+    #[account(mut, has_one = owner)]
+    pub account: Account<'info, UserAccount>,
+    
+    pub owner: Signer<'info>,
 }
 
-pub fn health_check(ctx: Context<HealthCheck>) -> Result<HealthStatus> {
-    let state = &ctx.accounts.system_state;
+pub fn explicit_transfer(
+    ctx: Context<ExplicitTransfer>,
+    amount: u64,
+) -> Result<()> {
+    let account = &ctx.accounts.account;
     
-    let status = HealthStatus {
-        is_healthy: !state.emergency_mode,
-        last_update: state.last_activity,
-        active_users: state.active_user_count,
-        system_load: calculate_system_load(state)?,
-    };
+    // Explicit validations are more readable and debuggable
+    require!(account.active, ErrorCode::AccountInactive);
+    require!(account.balance >= amount, ErrorCode::InsufficientFunds);
+    require!(
+        Clock::get()?.unix_timestamp < account.expires_at,
+        ErrorCode::AccountExpired
+    );
     
-    msg!("Health Status: {:?}", status);
-    Ok(status)
+    // Perform transfer logic
+    perform_transfer(ctx, amount)?;
+    Ok(())
+}
+```
+
+### Account Initialization Race Conditions
+
+```rust
+// Dangerous: Check-then-act pattern
+pub fn initialize_if_needed(ctx: Context<InitAccount>) -> Result<()> {
+    if ctx.accounts.account.data_is_empty() {
+        // Race condition: Another transaction might initialize 
+        // this account between the check and initialization
+        initialize_account(ctx)?;
+    }
+    Ok(())
+}
+
+// Better: Use Anchor's init constraint
+#[derive(Accounts)]
+pub struct InitAccount<'info> {
+    #[account(
+        init,
+        payer = user,
+        space = 8 + 64,
+        seeds = [b"account", user.key().as_ref()],
+        bump
+    )]
+    pub account: Account<'info, MyAccount>,
+    
+    #[account(mut)]
+    pub user: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 ```
 
 ---
 
-## 🎯 What's Next?
+## 🚨 Common Attack Vectors
 
-Congratulations! You've completed the comprehensive Solana development course. You now have:
+### 1. Fake Program ID Attacks
 
-- **Fundamental Knowledge**: Understanding of Solana's architecture and development model
-- **Practical Skills**: Hands-on experience with Anchor and raw Solana development
-- **Advanced Techniques**: Knowledge of production-ready patterns and best practices
-- **Security Awareness**: Understanding of common pitfalls and security considerations
+```rust
+// Vulnerable: Accepting arbitrary program IDs
+#[derive(Accounts)]
+pub struct VulnerableAccounts<'info> {
+    /// CHECK: This account is not validated
+    pub external_program: AccountInfo<'info>,
+}
 
-### 🚀 Continue Your Journey:
+pub fn call_external(ctx: Context<VulnerableAccounts>) -> Result<()> {
+    // Attacker can pass malicious program
+    let cpi_ctx = CpiContext::new(
+        ctx.accounts.external_program.to_account_info(),
+        /* accounts */
+    );
+    
+    // This might call attacker's program instead of expected one
+    Ok(())
+}
 
-1. **Build Real Projects**: Apply these patterns to create your own DeFi protocols, NFT marketplaces, or DAOs
-2. **Contribute to Open Source**: Join the Solana ecosystem by contributing to existing projects
-3. **Stay Updated**: Follow Solana development updates and new features
-4. **Join the Community**: Engage with other developers in Discord, forums, and local meetups
-5. **Teach Others**: Share your knowledge and help grow the Solana developer community
+// Safe: Validate program IDs
+#[derive(Accounts)]
+pub struct SafeAccounts<'info> {
+    #[account(
+        address = EXPECTED_PROGRAM_ID @ ErrorCode::InvalidProgram
+    )]
+    pub external_program: Program<'info, ExternalProgram>,
+}
+```
 
-### 📚 Additional Resources:
+### 2. Account Substitution Attacks
 
-- [Solana Cookbook](https://solanacookbook.com/)
-- [Anchor Documentation](https://anchor-lang.com/)
-- [Solana Program Library](https://spl.solana.com/)
-- [Metaplex Documentation](https://docs.metaplex.com/)
-- [Solana Security Best Practices](https://github.com/solana-labs/solana-program-library/blob/master/docs/security-audit.md)
+```rust
+// Vulnerable: Using unchecked account relationships
+pub fn transfer_between_users(
+    ctx: Context<TransferBetweenUsers>,
+    amount: u64,
+) -> Result<()> {
+    // Attacker could substitute their own accounts
+    let from = &mut ctx.accounts.from_account;
+    let to = &mut ctx.accounts.to_account;
+    
+    from.balance -= amount;
+    to.balance += amount;
+    
+    Ok(())
+}
 
-Happy building on Solana! 🎉
+// Safe: Validate account ownership and relationships
+#[derive(Accounts)]
+pub struct SafeTransfer<'info> {
+    #[account(
+        mut,
+        has_one = owner @ ErrorCode::InvalidOwner,
+        constraint = from_account.balance >= amount @ ErrorCode::InsufficientFunds
+    )]
+    pub from_account: Account<'info, UserAccount>,
+    
+    #[account(mut)]
+    pub to_account: Account<'info, UserAccount>,
+    
+    pub owner: Signer<'info>,
+}
+```
+
+### 3. Integer Overflow/Underflow
+
+```rust
+// Dangerous: Unchecked arithmetic
+pub fn unsafe_math(ctx: Context<UnsafeMath>, amount: u64) -> Result<()> {
+    let account = &mut ctx.accounts.account;
+    
+    // Could overflow
+    account.balance = account.balance + amount;
+    
+    // Could underflow
+    account.balance = account.balance - amount;
+    
+    Ok(())
+}
+
+// Safe: Use checked arithmetic
+pub fn safe_math(ctx: Context<SafeMath>, amount: u64) -> Result<()> {
+    let account = &mut ctx.accounts.account;
+    
+    account.balance = account.balance
+        .checked_add(amount)
+        .ok_or(ErrorCode::MathOverflow)?;
+    
+    account.balance = account.balance
+        .checked_sub(amount)
+        .ok_or(ErrorCode::MathUnderflow)?;
+    
+    Ok(())
+}
+```
+
+---
+
+## 🛡️ Security Best Practices
+
+### 1. Input Validation
+
+```rust
+pub fn secure_function(
+    ctx: Context<SecureFunction>,
+    amount: u64,
+    recipient: Pubkey,
+) -> Result<()> {
+    // Validate inputs
+    require!(amount > 0, ErrorCode::InvalidAmount);
+    require!(amount <= MAX_TRANSFER_AMOUNT, ErrorCode::AmountTooLarge);
+    require!(recipient != Pubkey::default(), ErrorCode::InvalidRecipient);
+    
+    // Additional business logic validation
+    require!(
+        ctx.accounts.user_account.can_transfer(amount),
+        ErrorCode::TransferNotAllowed
+    );
+    
+    // Proceed with operation
+    perform_transfer(ctx, amount, recipient)?;
+    Ok(())
+}
+```
+
+### 2. Fail-Safe Defaults
+
+```rust
+#[account]
+pub struct SecureConfig {
+    pub enabled: bool,        // Default: false (disabled)
+    pub max_amount: u64,      // Default: 0 (no transfers)
+    pub emergency_stop: bool, // Default: false (stopped)
+}
+
+pub fn transfer_with_circuit_breaker(
+    ctx: Context<TransferWithBreaker>,
+    amount: u64,
+) -> Result<()> {
+    let config = &ctx.accounts.config;
+    
+    // Fail-safe: Stop if emergency activated
+    require!(!config.emergency_stop, ErrorCode::EmergencyStop);
+    
+    // Fail-safe: Only allow if explicitly enabled
+    require!(config.enabled, ErrorCode::TransfersDisabled);
+    
+    // Fail-safe: Respect maximum limits
+    require!(amount <= config.max_amount, ErrorCode::AmountTooHigh);
+    
+    perform_transfer(ctx, amount)?;
+    Ok(())
+}
+```
+
+### 3. Comprehensive Testing
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[tokio::test]
+    async fn test_security_edge_cases() {
+        // Test with maximum values
+        test_with_max_u64().await;
+        
+        // Test with zero values
+        test_with_zero_amounts().await;
+        
+        // Test account substitution
+        test_account_substitution_attack().await;
+        
+        // Test reentrancy scenarios
+        test_cross_account_consistency().await;
+        
+        // Test with malicious program IDs
+        test_fake_program_attack().await;
+    }
+    
+    async fn test_account_substitution_attack() {
+        let attacker_account = create_fake_account();
+        
+        // This should fail with InvalidOwner
+        let result = call_transfer_with_fake_account(attacker_account).await;
+        assert!(result.is_err());
+        
+        match result.unwrap_err() {
+            ErrorCode::InvalidOwner => {}, // Expected
+            _ => panic!("Wrong error type"),
+        }
+    }
+}
+```
+
+---
+
+## 🚨 Security Checklist
+
+**Before Deploying:**
+
+- [ ] All arithmetic operations use checked math
+- [ ] All account relationships are validated
+- [ ] All program IDs in CPIs are verified
+- [ ] Input validation covers edge cases (0, max values)
+- [ ] Account size limits are enforced
+- [ ] Emergency stop mechanisms are in place
+- [ ] Comprehensive test coverage including attack scenarios
+- [ ] Code has been audited by security professionals
+- [ ] All Anchor constraints are necessary and sufficient
+- [ ] Manual validations complement (don't duplicate) constraints
+
+**During Development:**
+
+- [ ] Use `require!` macro for clear error messages
+- [ ] Prefer explicit validation over complex constraints
+- [ ] Test with realistic account sizes and data
+- [ ] Monitor compute unit usage
+- [ ] Use fail-safe defaults in configuration
+- [ ] Document security assumptions and invariants
+
+---
+
+## 🎯 Key Takeaways
+
+1. **Solana's parallel execution prevents traditional reentrancy but creates new challenges**
+2. **Account locking provides safety but requires careful transaction design**
+3. **CPI security is critical - validate all program IDs and account relationships**
+4. **Anchor constraints are powerful but shouldn't replace explicit validation**
+5. **Security testing must include edge cases and attack scenarios**
+6. **Fail-safe defaults and circuit breakers are essential for production systems**
+
+Understanding these Sealevel-specific security considerations is crucial for building robust Solana programs. The parallel execution model provides many safety guarantees, but developers must still be vigilant about the unique attack vectors and edge cases that can arise.
+
+---
+
+## 🎓 Conclusion
+
+You now understand the unique security landscape of Solana development. With this knowledge, you can build more secure programs and avoid the common pitfalls that arise from Solana's innovative architecture.
+
+Remember: **Security is not a feature to be added later - it must be designed in from the beginning.**

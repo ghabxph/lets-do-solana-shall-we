@@ -143,22 +143,9 @@ This gives learners a **vision** of what they can build — and why Solana matte
 
 ---
 
-## [🚀 Module 10: Extra - Advanced Solana Development Patterns](module-10)
+## [🔐 Module 10: Solana Program Security (Sealevel Gotchas)](module-10)
 
-Explore advanced Solana development patterns, best practices, and real-world implementation strategies that go beyond the basics.
-
-- ✅ Advanced PDA patterns and optimization techniques  
-- ✅ State compression and Merkle trees for scalable NFTs
-- ✅ Cross-program invocation (CPI) best practices
-- ✅ Account versioning and migration strategies
-- ✅ Advanced testing patterns and security considerations
-- ✅ Performance optimization and compute unit management
-- ✅ Integration with off-chain services and oracles
-- ✅ Deployment strategies and program upgrades
-
----
-
-## 📎 Extra: Solana Program Security (Sealevel Gotchas)
+*NOTE: THIS PAGE IS STILL IN PROGRESS... This is mostly AI generated, and yet validated by me*
 
 - Solana’s parallel execution model
 - Account constraints and limitations
