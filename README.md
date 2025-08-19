@@ -38,7 +38,7 @@ This escrow program will teach all the core Solana concepts in Module 3:
 
 ---
 
-## 🧪 [Module 3: First Real Program (Learning by Building)](module-3)
+## [🧪 Module 3: First Real Program (Learning by Building)](module-3)
 
 **Goal:** Build a real smart contract that touches the core building blocks of Solana.
 
@@ -57,7 +57,7 @@ This will teach:
 
 ---
 
-## 🌐 Module 4: The No-BS Web3 — Client Calls That Actually Work
+## [🌐 Module 4: The No-BS Web3 — Client Calls That Actually Work](module-4)
 
 We write the frontend and scripts **right after** the program is done.
 
@@ -73,7 +73,7 @@ We call our own program using raw transactions.
 
 ---
 
-## 🧪 Module 5: Simulating Mainnet With Banks Client
+## [🧪 Module 5: Simulating Mainnet With Banks Client](module-5)
 
 We want real-world realism **without** spending SOL.
 
@@ -88,7 +88,7 @@ This approach builds real muscle memory for production-grade testing.
 
 ---
 
-## 🔍 Module 6: How Anchor Really Works (Not Magic)
+## [🔍 Module 6: How Anchor Really Works (Not Magic)](module-6)
 
 We pause to understand what's happening under the hood.
 
@@ -103,7 +103,7 @@ This module is where Anchor goes from being a black box to being transparent and
 
 ---
 
-## 🛠️ Module 7: Rewriting It Without Anchor
+## [🛠️ Module 7: Rewriting It Without Anchor](module-7)
 
 Now that learners understand what Anchor does, we strip it away.
 
@@ -119,7 +119,7 @@ This is where we strengthen the foundation. Anchor becomes optional, not essenti
 
 ---
 
-## 🧱 Module 8: Back to Anchor (Now With Context)
+## [🧱 Module 8: Back to Anchor (Now With Context)](module-8)
 
 Now that learners appreciate the abstraction, we go back and:
 
@@ -130,7 +130,7 @@ This helps learners understand when to use Anchor — and when not to.
 
 ---
 
-## 🧠 Module 9: Higher-Level Concepts & Solana Vision
+## [🧠 Module 9: Higher-Level Concepts & Solana Vision](module-9)
 
 With hands-on skills built, we now explore:
 
@@ -140,6 +140,21 @@ With hands-on skills built, we now explore:
 - Real-world use cases (DeFi, NFTs, identity, games)
 
 This gives learners a **vision** of what they can build — and why Solana matters.
+
+---
+
+## [🚀 Module 10: Extra - Advanced Solana Development Patterns](module-10)
+
+Explore advanced Solana development patterns, best practices, and real-world implementation strategies that go beyond the basics.
+
+- ✅ Advanced PDA patterns and optimization techniques  
+- ✅ State compression and Merkle trees for scalable NFTs
+- ✅ Cross-program invocation (CPI) best practices
+- ✅ Account versioning and migration strategies
+- ✅ Advanced testing patterns and security considerations
+- ✅ Performance optimization and compute unit management
+- ✅ Integration with off-chain services and oracles
+- ✅ Deployment strategies and program upgrades
 
 ---
 

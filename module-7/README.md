@@ -734,22 +734,23 @@ EscrowState::pack(escrow_data, &mut escrow_state.try_borrow_mut_data()?)?;
 - Full control over every operation
 - No magic, just explicit code
 
-**5. Performance Considerations**
-- Slightly better performance (no macro overhead)
-- Smaller compiled program size
-- More predictable behavior
-- Better for performance-critical applications
+**5. Predictability and Debugging Advantages**
+- No macro magic - everything is explicit and visible
+- Easier to debug since all code paths are clear
+- More predictable behavior with no hidden abstractions
+- Direct control over memory layout and operations
 
 ---
 
 ## 🔍 When to Use Raw Solana
 
 **✅ Use Raw Solana When:**
-- Building performance-critical programs
-- Need fine-grained control over every operation
+- Need complete transparency and predictability in code execution
+- Require fine-grained control over every operation
 - Working with complex custom account layouts
 - Building foundational infrastructure
 - Security-critical applications requiring manual validation
+- Learning Solana internals and understanding the underlying mechanics
 
 **❌ Stick with Anchor When:**
 - Rapid prototyping and development
