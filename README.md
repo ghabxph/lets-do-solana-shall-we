@@ -190,3 +190,9 @@ By the end of this course, you will:
 This guide was written by **ChatGPT**, with the course structure and bottom-up philosophy guided by **[ghabxph](https://github.com/ghabxph)**.
 
 *Solana is not magic. Let's prove it.*
+
+---
+
+## 🌟 Additional Learning Resources
+
+For more advanced Solana development tutorials and resources, check out [Blueshift](https://learn.blueshift.gg/en) - a comprehensive platform for blockchain development education.
